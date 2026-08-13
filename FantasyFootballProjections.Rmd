@@ -1,0 +1,132 @@
+---
+title: "Real-time theming with bslib and thematic"
+output: 
+  html_document:
+    code_folding: show
+    theme:
+      color-contrast-warnings: false
+      bg: "#202123"
+      fg: "#B8BCC2"
+      primary: "#EA80FC"
+      secondary: "#00DAC6"
+      base_font:
+        google: Prompt
+      heading_font:
+        google: Proza Libre
+---
+
+```{r setup, include=FALSE}
+install.packages("nflverse")
+remotes::install_github("FantasyFootballAnalytics/ffanalytics")
+install.packages(c("reshape", "MASS", "psych", "XML"), dependencies=TRUE)
+
+library(tidyr)
+library(dplyr)
+library(ggplot2)
+library(nflverse)
+library(ffanalytics)
+library(data.table)
+library(purrr)
+library(knitr)
+library(writexl)
+library(reshape)
+library(MASS)
+library(psych)
+library(XML)
+library(nflreadr)
+```
+
+
+## Scraping Projections
+```{r}
+raw_scrape <- scrape_data(
+  src = c("CBS", "ESPN", "FantasyPros", "FantasySharks", "FFToday",
+          "FleaFlicker", "FantasyFootballNerd", "NFL",
+          "RTSports", "Walterfootball", "FanDuel"),
+          pos = c("QB", "RB", "WR", "TE", "DST"),
+          season = 2026, week = 0
+)
+```
+
+## Seperating positions from scrape
+
+```{r}
+# This is the example from FFAnalytics
+# It creates a projections table without the raw stats, which I can't use my custom league scoring for
+# But, I still need it for things like ADP, ECR, AAV, and Uncertainty
+# Which will be merged with the clean custom projections later
+raw_projections <- projections_table(raw_scrape)
+
+raw_projections <- raw_projections |> 
+  add_ecr() |> 
+  add_adp() |> 
+  add_aav() |> 
+  add_uncertainty()
+
+raw_projections <- raw_projections |> 
+  add_player_info()
+```
+
+```{r}
+# Taking the list of scraped data, and creating a data.frame
+raw_scrape_data <- bind_rows(raw_scrape)
+```
+
+```{r}
+# that new data frame now being split up by position except kickers.  Fuck'em that's why.
+qb_raw <- dplyr::filter(raw_scrape_data, pos == "QB") |> 
+  dplyr::select(player:fumbles_lost, data_src, id)
+
+rb_raw <- dplyr::filter(raw_scrape_data, pos == "RB") |>
+  dplyr::select(player:games, rush_att:fumbles_lost, data_src, id, rec_tgt:rec_tds)
+
+wr_raw <- dplyr::filter(raw_scrape_data, pos == "WR") |> 
+  dplyr::select(player:games, rush_att:fumbles_lost, data_src, id, rec_tgt:rec_tds)
+
+te_raw <- dplyr::filter(raw_scrape_data, pos == "TE") |> 
+  dplyr::select(player:games, rush_att:fumbles_lost, data_src, id, rec_tgt:rec_tds)
+  
+dst_raw <- dplyr::filter(raw_scrape_data, pos == "DST" | pos == "D") |> 
+  dplyr::select(player:team, dst_safety:dst_ret_tds)
+```
+
+## Scoring the raw data we just finished making
+```{r}
+# Creating the custom scoring for each /pos/_raw
+score_qb <- function(df){
+  df |> 
+    mutate(
+      across(where(is.double), \(x) replace_na(x, 0)), # Changing N/A's to 0's because letters don't math well
+
+      pass_pts = (pass_yds * 0.04) + (pass_tds *4) - (pass_int * 2),
+      rush_pts = (rush_att * 0.3) + (rush_yds * 0.1) + (rush_tds * 6),
+      fumble_pts = (fumbles_lost * -2),
+
+      custom_fp = pass_pts + rush_pts + fumble_pts
+    )
+}
+
+score_skill_pos <- function(df){
+  df |> 
+    mutate(
+      across(where(is.double), \(x) replace_na(x, 0)),
+
+      rush_pts = (rush_att * 0.3) + (rush_yds * 0.1) + (rush_tds * 6),
+      rec_pts = (rec * 1) + (rec_yds * 0.1) + (rec_tds * 6),
+      fumble_pts = (fumbles_lost * -2),
+
+      custom_fp = rush_pts + rec_pts + fumble_pts
+    )
+}
+
+# Running raw stats through custom scoring
+qb_scored <- qb_raw |> score_qb()
+rb_scored <- rb_raw |> score_skill_pos()
+wr_scored <- wr_raw |> score_skill_pos()
+te_scored <- te_raw |> score_skill_pos()
+```
+
+
+```{r}
+
+```
