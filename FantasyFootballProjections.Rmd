@@ -15,11 +15,16 @@ output:
         google: Proza Libre
 ---
 
-```{r setup, include=FALSE}
-install.packages("nflverse")
-remotes::install_github("FantasyFootballAnalytics/ffanalytics")
-install.packages(c("reshape", "MASS", "psych", "XML"), dependencies=TRUE)
+#```{r setup, include=FALSE}
+#install.packages("remotes")
+#install.packages("nflverse")
+#remotes::install_github("FantasyFootballAnalytics/ffanalytics")
+#install.packages(c("reshape", "MASS", "psych", "XML"), dependencies=TRUE)
+#install.packages('ffsimulator', repos = c('https://ffverse.r-universe.dev', 'https://cloud.r-project.org'))
+#install.packages('ffopportunity', repos = c('https://ffverse.r-universe.dev', 'https://cloud.r-project.org'))
+#```
 
+```{r setup, include=FALSE}
 library(tidyr)
 library(dplyr)
 library(ggplot2)
@@ -34,6 +39,9 @@ library(MASS)
 library(psych)
 library(XML)
 library(nflreadr)
+library(stringr)
+library(nflplotR)
+library(gt)
 ```
 
 
@@ -42,7 +50,7 @@ library(nflreadr)
 raw_scrape <- scrape_data(
   src = c("CBS", "ESPN", "FantasyPros", "FantasySharks", "FFToday",
           "FleaFlicker", "FantasyFootballNerd", "NFL",
-          "RTSports", "Walterfootball", "FanDuel"),
+          "RTSports", "Walterfootball", "NumberFire"),
           pos = c("QB", "RB", "WR", "TE", "DST"),
           season = 2026, week = 0
 )
@@ -68,26 +76,45 @@ raw_projections <- raw_projections |>
 ```
 
 ```{r}
+# Creating a function to clean the player names to avoid mismatches later
+clean_player_name <- function(name_vec) {
+  name_vec |> 
+    # 1. Flip "Last, First" to "First Last"
+    str_replace("^([^,]+),\\s*(.*)$", "\\2 \\1") |> 
+    # 2. Remove common suffixes that break exact matching
+    str_remove_all("\\b(Jr\\.?|Sr\\.?|III|II|IV|V)\\b") |> 
+    # 3. Remove periods (converts "A.J." or "D.J." to "AJ" or "DJ")
+    str_remove_all("\\.") |> 
+    # 4. Clean up any accidental double spaces created by the removals
+    str_squish()
+}
 # Taking the list of scraped data, and creating a data.frame
-raw_scrape_data <- bind_rows(raw_scrape)
+raw_scrape_data <- bind_rows(raw_scrape) |> 
+  mutate(
+    player_clean = clean_player_name(player)
+  )
+# Now we move the player_clean variable to a position that makes sense
+
+raw_scrape_data <- raw_scrape_data |> 
+  relocate(player_clean, .after = player)
 ```
 
 ```{r}
 # that new data frame now being split up by position except kickers.  Fuck'em that's why.
 qb_raw <- dplyr::filter(raw_scrape_data, pos == "QB") |> 
-  dplyr::select(player:fumbles_lost, data_src, id)
+  dplyr::select(player_clean:fumbles_lost, data_src, id)
 
 rb_raw <- dplyr::filter(raw_scrape_data, pos == "RB") |>
-  dplyr::select(player:games, rush_att:fumbles_lost, data_src, id, rec_tgt:rec_tds)
+  dplyr::select(player_clean:games, rush_att:fumbles_lost, data_src, id, rec_tgt:rec_tds)
 
 wr_raw <- dplyr::filter(raw_scrape_data, pos == "WR") |> 
-  dplyr::select(player:games, rush_att:fumbles_lost, data_src, id, rec_tgt:rec_tds)
+  dplyr::select(player_clean:games, rush_att:fumbles_lost, data_src, id, rec_tgt:rec_tds)
 
 te_raw <- dplyr::filter(raw_scrape_data, pos == "TE") |> 
-  dplyr::select(player:games, rush_att:fumbles_lost, data_src, id, rec_tgt:rec_tds)
+  dplyr::select(player_clean:games, rush_att:fumbles_lost, data_src, id, rec_tgt:rec_tds)
   
 dst_raw <- dplyr::filter(raw_scrape_data, pos == "DST" | pos == "D") |> 
-  dplyr::select(player:team, dst_safety:dst_ret_tds)
+  dplyr::select(player_clean:team, dst_safety:dst_ret_tds)
 ```
 
 ## Scoring the raw data we just finished making
@@ -126,7 +153,299 @@ wr_scored <- wr_raw |> score_skill_pos()
 te_scored <- te_raw |> score_skill_pos()
 ```
 
+## Taking the scored data, and making it smush together
+```{r}
+qb_final_projections <- qb_scored |> 
+  dplyr::filter_out(is.na(id)) |> 
+  dplyr::group_by(id) |> 
+  dplyr::summarise(
+    player = first(player_clean),
+    proj_fp_avg = mean(custom_fp, na.rm = TRUE),
+    proj_fp_median = median(custom_fp, na.rm = TRUE),
+
+    ## calculate std. devation and the number of sources per player
+    proj_sd = sd(custom_fp, na.rm = TRUE), 
+    num_sources = n_distinct(data_src), 
+    .groups = "drop"
+  )
+
+
+rb_final_projections <- rb_scored |> 
+  dplyr::filter_out(is.na(id)) |> 
+  dplyr::group_by(id) |> 
+  dplyr::summarise(
+    player = first(player_clean),
+    proj_fp_avg = mean(custom_fp, na.rm = TRUE),
+    proj_fp_median = median(custom_fp, na.rm = TRUE),
+
+    ## calculate std. devation and the number of sources per player
+    proj_sd = sd(custom_fp, na.rm = TRUE), 
+    num_sources = n_distinct(data_src), 
+    .groups = "drop"
+  )
+
+wr_final_projections <- wr_scored |> 
+  dplyr::filter_out(is.na(id)) |> 
+  dplyr::group_by(id) |> 
+  dplyr::summarise(
+    player = first(player_clean),
+    proj_fp_avg = mean(custom_fp, na.rm = TRUE),
+    proj_fp_median = median(custom_fp, na.rm = TRUE),
+
+    ## calculate std. devation and the number of sources per player
+    proj_sd = sd(custom_fp, na.rm = TRUE), 
+    num_sources = n_distinct(data_src), 
+    .groups = "drop"
+  )
+
+te_final_projections <- te_scored |> 
+  dplyr::filter_out(is.na(id)) |> 
+  dplyr::group_by(id) |> 
+  dplyr::summarise(
+    player = first(player_clean),
+    proj_fp_avg = mean(custom_fp, na.rm = TRUE),
+    proj_fp_median = median(custom_fp, na.rm = TRUE),
+
+    ## calculate std. devation and the number of sources per player
+    proj_sd = sd(custom_fp, na.rm = TRUE), 
+    num_sources = n_distinct(data_src), 
+    .groups = "drop"
+  )
+
+
+# Now we arranged them neatly by averages, not because that's better,
+# but because FFAnalytics doesn't produce a median number in their projections table command
+qb_final_projections <- qb_final_projections |> 
+  dplyr::arrange(desc(proj_fp_avg))
+
+rb_final_projections <- rb_final_projections |> 
+  dplyr::arrange(desc(proj_fp_avg))
+
+wr_final_projections <- wr_final_projections |> 
+  dplyr::arrange(desc(proj_fp_avg))
+
+te_final_projections <- te_final_projections |> 
+  dplyr::arrange(desc(proj_fp_avg))
+```
+
+## Righty ho, now, that's the boring and tedious parts done
+## Now, we find our base lines for VOR, Calculate, and Bob's your uncle, and your dad
 
 ```{r}
+# Let's get functional
+calculate_VOR <- function(df, replacement_rank) {
+  replacement_points <- df |> 
+    arrange(desc(proj_fp_avg)) |> 
+    slice(replacement_rank) |> 
+    pull(proj_fp_avg)
 
+  df |> 
+    arrange(desc(proj_fp_avg)) |> 
+    mutate(
+      projection_rank = row_number(),
+      replacement_points = replacement_points,
+      vor = proj_fp_avg - replacement_points,
+      vor_rank = min_rank(desc(vor))
+    )
+}
+
+# Staying with the seperate pieces theme, now we find each position VOR
+qb_vor <- qb_final_projections |> 
+  calculate_VOR(replacement_rank = 13)
+
+rb_vor <- rb_final_projections |> 
+  calculate_VOR(replacement_rank = 37)
+
+wr_vor <- wr_final_projections |> 
+  calculate_VOR(replacement_rank = 41)
+
+te_vor <- te_final_projections |> 
+  calculate_VOR(replacement_rank = 13)
+```
+
+## This is where the wheel completes it's lap.  We are going to use that FFAnalytics example and attach data from it here
+
+```{r}
+# Attaching ADP, ECR, AAV, and Uncertainty
+# Getting Functional first
+attach_market_data <- function(final_df, raw_proj) {
+  final_df |> 
+    left_join(
+      raw_proj |> 
+        dplyr::select(id, overall_ecr, adp, adp_sd, aav, uncertainty, tier, team) |> 
+        distinct(id, .keep_all = TRUE), 
+      by = "id"
+    ) |> 
+      relocate(team, overall_ecr, adp, adp_sd, uncertainty, tier, .after = player)
+}
+qb_vor <- attach_market_data(qb_vor, raw_projections)
+rb_vor <- attach_market_data(rb_vor, raw_projections)
+wr_vor <- attach_market_data(wr_vor, raw_projections)
+te_vor <- attach_market_data(te_vor, raw_projections)
+```
+
+## Now for the juice that really makes this worth the squeeze. Real Historical Stats.
+```{r}
+# pull 10 years of historical data.  Thank you NFLverse
+historical_raw <- nflreadr::load_player_stats(seasons = 2015:2025, summary_level = "reg")
+
+# Use the same scoring as earlier.  Consistency, thy name is boredom.
+historical_scored <- historical_raw |> 
+  filter(position %in% c("QB", "RB", "WR", "TE")) |> 
+  mutate(
+    across(where(is.numeric), \(x) replace_na(x, 0)),
+
+    pass_pts = (passing_yards * 0.04) + (passing_tds * 4) - (passing_interceptions * 2),
+    rush_pts = (carries * 0.3) + (rushing_yards * 0.1) + (rushing_tds * 6),
+    rec_pts  = (receptions * 1.0) + (receiving_yards * 0.1) + (receiving_tds * 6),
+    fumb_pts = (sack_fumbles_lost + rushing_fumbles_lost + receiving_fumbles_lost) * -2,
+    
+    custom_fp = pass_pts + rush_pts + rec_pts + fumb_pts
+  )
+
+# NFLverse uses different ID's & player_name ideal than FFA.  We clean that first, then find the total number of seasons per player...
+historical_summary <- historical_scored |> 
+  mutate(
+    player_clean = clean_player_name(player_display_name)
+  ) |> 
+  group_by(player_clean, position) |> 
+  summarise(
+    seasons_played = n_distinct(season),
+    career_games =  sum(games, na.rm = TRUE),
+    hist_fp_avg = mean(custom_fp, na.rm = TRUE),
+    hist_fp_max = max(custom_fp, na.rm = TRUE), 
+    last_season_fp = custom_fp[which.max(season)],
+    .groups = "drop"
+  )
+# ...And we average them out across the board.  Boredom thy name is consistency
+
+# Okay, almost done, the next step is joinging the historical stuff with the positional VOR stuff
+attach_historical_delta <- function(vor_df, hist_summary){
+  vor_df |> 
+    left_join(
+      hist_summary |> dplyr::select(!(position)),
+      by = c("player" = "player_clean")
+    ) |> 
+      mutate(
+        hist_delta_avg = proj_fp_avg - hist_fp_avg,
+        hist_delta_last = proj_fp_avg - last_season_fp,
+        player_type = case_when(
+          is.na(seasons_played) ~ "Rookie/No History",
+          seasons_played <= 2 ~ "Young (1-2yrs)",
+          TRUE ~ "Veteran (3+ yrs)"
+        )
+      ) |> 
+        relocate(player_type, seasons_played, hist_fp_avg, hist_delta_avg, hist_delta_last, .after = proj_fp_avg)
+}
+
+# And then we do some more smushing
+qb_vor <- attach_historical_delta(qb_vor, historical_summary)
+rb_vor <- attach_historical_delta(rb_vor, historical_summary)
+wr_vor <- attach_historical_delta(wr_vor, historical_summary)
+te_vor <- attach_historical_delta(te_vor, historical_summary)
+```
+
+
+## Output to Excel for that nitty gritty stuff
+
+```{r}
+# Combine top starters by position
+top_starters <- bind_rows(
+  qb_vor |> dplyr::slice_head(n = 12) |> dplyr::mutate(pos = "QB"),
+  rb_vor |> dplyr::slice_head(n = 24) |> dplyr::mutate(pos = "RB"),
+  wr_vor |> dplyr::slice_head(n = 30) |> dplyr::mutate(pos = "WR"),
+  te_vor |> dplyr::slice_head(n = 12) |> dplyr::mutate(pos = "TE")
+)
+
+# Export Multi-Tab Excel Spreadsheet (v1)
+writexl::write_xlsx(
+  list(
+    "Top Starters" = top_starters,
+    "QBs"          = qb_vor,
+    "RBs"          = rb_vor,
+    "WRs"          = wr_vor,
+    "TEs"          = te_vor
+  ),
+  path = "fantasy_projections_v1.xlsx"
+)
+```
+
+
+
+
+
+
+## Plotting some things
+
+```{r}
+# Build the formatted table
+gt_cheat_sheet <- top_starters |> 
+  dplyr::select(
+    pos, projection_rank, player, team, proj_fp_avg, vor, adp, overall_ecr, uncertainty
+  ) |> 
+  gt(groupname_col = "pos") |> 
+  tab_header(
+    title = md("**2026 Fantasy Football Draft Cheat Sheet**"),
+    subtitle = "Custom Point-Per-Carry & PPR Scoring | Value Over Replacement (VOR) Analysis"
+  ) |> 
+  # Automatically converts team abbreviations into official NFL logos
+  gt_nfl_logos(columns = team) |> 
+  fmt_number(columns = c(proj_fp_avg, vor, adp, overall_ecr), decimals = 1) |> 
+  data_color(
+    columns = vor,
+    palette = c("#F1F8E9", "#A5D6A7", "#2E7D32") # Light to dark green highlighting
+  ) |> 
+  cols_label(
+    projection_rank = "Pos Rank",
+    player          = "Player",
+    team            = "Team",
+    proj_fp_avg     = "Proj FP",
+    vor             = "VOR",
+    adp             = "ADP",
+    overall_ecr     = "ECR",
+    uncertainty     = "Risk Index"
+  ) |> 
+  tab_options(
+    table.font.size           = px(13),
+    heading.title.font.size   = px(18),
+    column_labels.font.weight = "bold",
+    row_group.font.weight     = "bold"
+  )
+
+# Preview in RStudio viewer or save as HTML/PNG to email/text
+gt::gtsave(gt_cheat_sheet, filename = "fantasy_cheat_sheet_v1.html")
+# Optional: save as PNG image (requires webshot2 package)
+# gt::gtsave(gt_cheat_sheet, filename = "fantasy_cheat_sheet_v1.png")
+
+# Filter to top tier starters for a clean visual (e.g. top 8 per position)
+plot_data <- top_starters |> 
+  group_by(pos) |> 
+  slice_head(n = 8) |> 
+  ungroup() |> 
+  mutate(
+    # Order players so highest VOR renders at the top
+    player_order = reorder(paste0(player, " (", pos, ")"), vor)
+  )
+
+vor_plot <- ggplot(plot_data, aes(x = vor, y = player_order, fill = pos)) +
+  geom_col(width = 0.7, show.legend = FALSE) +
+  facet_wrap(~ pos, scales = "free_y", ncol = 2) +
+  theme_minimal(base_size = 12) +
+  labs(
+    title = "Top Starter Value Over Replacement (VOR)",
+    subtitle = "Comparing Custom Projected Value Across Positions",
+    x = "Value Over Replacement (Points)",
+    y = NULL
+  ) +
+  theme(
+    plot.title = element_text(face = "bold", size = 16),
+    strip.text = element_text(face = "bold", size = 13),
+    panel.grid.minor = element_blank()
+  )
+
+# Display plot
+print(vor_plot)
+
+# Save image file to send via message
+ggsave("vor_top_starters_v1.png", vor_plot, width = 10, height = 8, dpi = 300)
 ```
