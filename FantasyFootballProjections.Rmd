@@ -378,6 +378,7 @@ writexl::write_xlsx(
 ## Plotting some things
 
 ```{r}
+# Cheat Sheet
 # Build the formatted table
 gt_cheat_sheet <- top_starters |> 
   dplyr::select(
@@ -427,6 +428,7 @@ plot_data <- top_starters |>
     player_order = reorder(paste0(player, " (", pos, ")"), vor)
   )
 
+# Column Plot
 vor_plot <- ggplot(plot_data, aes(x = vor, y = player_order, fill = pos)) +
   geom_col(width = 0.7, show.legend = FALSE) +
   facet_wrap(~ pos, scales = "free_y", ncol = 2) +
@@ -448,4 +450,99 @@ print(vor_plot)
 
 # Save image file to send via message
 ggsave("vor_top_starters_v1.png", vor_plot, width = 10, height = 8, dpi = 300)
+
+# Cheat Sheet v2
+library(gt)
+library(nflplotR)
+library(htmltools)
+library(dplyr)
+
+# -------------------------------------------------------------------------
+# 1. Helper Function: Builds an Ultra-Compact GT Table for One Position
+# -------------------------------------------------------------------------
+create_compact_pos_table <- function(df, pos_name, header_color, limit_n = 25) {
+  
+  df |> 
+    dplyr::slice_head(n = limit_n) |> 
+    dplyr::select(projection_rank, player, team, proj_fp_avg, vor, adp) |> 
+    gt() |> 
+    tab_header(
+      title = md(paste0("**", pos_name, "**"))
+    ) |> 
+    # Small NFL logos
+    gt_nfl_logos(columns = team, height = 18) |> 
+    fmt_number(columns = c(proj_fp_avg, vor, adp), decimals = 1) |> 
+    # Subtle VOR Heatmap
+    data_color(
+      columns = vor,
+      palette = c("#F1F8E9", "#C8E6C9", "#81C784", "#388E3C"),
+      alpha = 0.85
+    ) |> 
+    cols_label(
+      projection_rank = "#",
+      player          = "Player",
+      team            = "",
+      proj_fp_avg     = "FP",
+      vor             = "VOR",
+      adp             = "ADP"
+    ) |> 
+    tab_options(
+      # Compact padding & font settings to remove vertical bloat
+      table.font.size                   = px(11),
+      heading.title.font.size           = px(14),
+      heading.background.color          = header_color,
+      column_labels.font.size           = px(10),
+      column_labels.font.weight         = "bold",
+      column_labels.padding             = px(3),
+      data_row.padding                  = px(2),  # Tight row spacing
+      table.width                       = pct(100),
+      table.border.top.style            = "none",
+      table.border.bottom.style         = "none"
+    )
+}
+
+# -------------------------------------------------------------------------
+# 2. Build Individual Cards
+# -------------------------------------------------------------------------
+# Set custom row limits (e.g., Top 12 QB, Top 24 RB, Top 30 WR, Top 12 TE)
+tbl_qb <- create_compact_pos_table(qb_vor, "Quarterbacks", "#2B4C7E", limit_n = 12)
+tbl_rb <- create_compact_pos_table(rb_vor, "Running Backs", "#1B5E20", limit_n = 24)
+tbl_wr <- create_compact_pos_table(wr_vor, "Wide Receivers", "#B71C1C", limit_n = 30)
+tbl_te <- create_compact_pos_table(te_vor, "Tight Ends",     "#E65100", limit_n = 12)
+
+# -------------------------------------------------------------------------
+# 3. Assemble into a Side-by-Side Flexbox Dashboard
+# -------------------------------------------------------------------------
+draft_dashboard <- htmltools::tags$div(
+  style = "font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #F8F9FA; padding: 15px;",
+  
+  # Dashboard Header
+  htmltools::tags$div(
+    style = "margin-bottom: 15px; text-align: center;",
+    htmltools::tags$h2(style = "margin: 0; color: #1A1A1A; font-size: 22px;", "2026 DRAFT DAY VALUE BOARD"),
+    htmltools::tags$p(style = "margin: 4px 0 0 0; color: #666; font-size: 12px;", "Custom PPR + 0.3 PPA | Value Over Replacement (VOR) Tracker")
+  ),
+  
+  # Responsive Flex Grid (2x2 or 4-Column Layout)
+  htmltools::tags$div(
+    style = "display: flex; flex-wrap: wrap; gap: 12px; justify-content: center; align-items: flex-start;",
+    
+    # QB Card
+    htmltools::tags$div(style = "flex: 1 1 280px; max-width: 340px; background: white; box-shadow: 0 2px 5px rgba(0,0,0,0.08); border-radius: 6px; overflow: hidden;", as_raw_html(tbl_qb)),
+    
+    # RB Card
+    htmltools::tags$div(style = "flex: 1 1 280px; max-width: 340px; background: white; box-shadow: 0 2px 5px rgba(0,0,0,0.08); border-radius: 6px; overflow: hidden;", as_raw_html(tbl_rb)),
+    
+    # WR Card
+    htmltools::tags$div(style = "flex: 1 1 280px; max-width: 340px; background: white; box-shadow: 0 2px 5px rgba(0,0,0,0.08); border-radius: 6px; overflow: hidden;", as_raw_html(tbl_wr)),
+    
+    # TE Card
+    htmltools::tags$div(style = "flex: 1 1 280px; max-width: 340px; background: white; box-shadow: 0 2px 5px rgba(0,0,0,0.08); border-radius: 6px; overflow: hidden;", as_raw_html(tbl_te))
+  )
+)
+
+# -------------------------------------------------------------------------
+# 4. Save HTML File
+# -------------------------------------------------------------------------
+htmltools::save_html(draft_dashboard, file = "draft_day_cheat_sheet.html")
 ```
