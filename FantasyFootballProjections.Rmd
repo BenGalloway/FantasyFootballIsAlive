@@ -357,17 +357,19 @@ top_starters <- bind_rows(
   te_vor |> dplyr::slice_head(n = 12) |> dplyr::mutate(pos = "TE")
 )
 
+ write.csv(top_starters, file = "custom_projections.csv")
+
 # Export Multi-Tab Excel Spreadsheet (v1)
-writexl::write_xlsx(
-  list(
-    "Top Starters" = top_starters,
-    "QBs"          = qb_vor,
-    "RBs"          = rb_vor,
-    "WRs"          = wr_vor,
-    "TEs"          = te_vor
-  ),
-  path = "fantasy_projections_v1.xlsx"
-)
+# writexl::write_xlsx(
+#  list(
+#    "Top Starters" = top_starters,
+#    "QBs"          = qb_vor,
+#    "RBs"          = rb_vor,
+#    "WRs"          = wr_vor,
+#    "TEs"          = te_vor
+#  ),
+#  path = "fantasy_projections_v1.xlsx"
+#)
 ```
 
 
