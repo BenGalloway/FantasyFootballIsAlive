@@ -351,10 +351,10 @@ te_vor <- attach_historical_delta(te_vor, historical_summary)
 ```{r}
 # Combine top starters by position
 top_starters <- bind_rows(
-  qb_vor |> dplyr::slice_head(n = 12) |> dplyr::mutate(pos = "QB"),
-  rb_vor |> dplyr::slice_head(n = 24) |> dplyr::mutate(pos = "RB"),
-  wr_vor |> dplyr::slice_head(n = 30) |> dplyr::mutate(pos = "WR"),
-  te_vor |> dplyr::slice_head(n = 12) |> dplyr::mutate(pos = "TE")
+  qb_vor |> dplyr::slice_head(n = 24) |> dplyr::mutate(pos = "QB"),
+  rb_vor |> dplyr::slice_head(n = 60) |> dplyr::mutate(pos = "RB"),
+  wr_vor |> dplyr::slice_head(n = 80) |> dplyr::mutate(pos = "WR"),
+  te_vor |> dplyr::slice_head(n = 30) |> dplyr::mutate(pos = "TE")
 )
 
  write.csv(top_starters, file = "custom_projections.csv")
